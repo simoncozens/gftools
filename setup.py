@@ -105,5 +105,6 @@ setup(
         'hyperglot',
         'fontFeatures',
         'bumpfontversion',
+        'vharfbuzz',
     ]
     )
