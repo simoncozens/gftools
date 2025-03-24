@@ -33,7 +33,6 @@ from gftools.utils import (
 )
 import re
 from gftools.qa import FontQA
-from diffenator2.font import DFont
 
 
 __version__ = "3.1.0"
@@ -42,7 +41,7 @@ logger.setLevel(logging.INFO)
 
 
 def family_name_from_fonts(fonts):
-    results = set(f.family_name for f in fonts)
+    results = [TTFont(font)["name"].getBestFamilyName() for font in fonts]
     if len(results) > 1:
         raise Exception("Multiple family names found: [{}]".format(", ".join(results)))
     return list(results)[0]
@@ -104,13 +103,14 @@ def main(args=None):
     check_group.add_argument(
         "--diffenator", action="store_true", help="Run Fontdiffenator"
     )
-    check_group.add_argument("--proof", action="store_true", help="Run HTML proofs")
     check_group.add_argument(
-        "--render",
+        "--proof",
         action="store_true",
-        help="Run diffbrowsers if fonts_before exist, otherwise run proof",
+        help="Run diff3proof",
     )
-    check_group.add_argument("--fontbakery", action="store_true", help="Run FontBakery")
+    check_group.add_argument(
+        "--fontspector", action="store_true", help="Run Fontspector"
+    )
     check_group.add_argument(
         "--diffbrowsers", action="store_true", help="Run Diffbrowsers"
     )
@@ -139,8 +139,8 @@ def main(args=None):
         ),
     )
     check_group.add_argument(
-        "--extra-fontbakery-args",
-        help="Additional arguments to FontBakery",
+        "--extra-fontspector-args",
+        help="Additional arguments to Fontspector",
         action="append",
     )
 
@@ -155,11 +155,10 @@ def main(args=None):
     if not any(
         [
             args.auto_qa,
-            args.fontbakery,
+            args.fontspector,
             args.proof,
             args.diffbrowsers,
             args.diffenator,
-            args.render,
             args.interpolations,
         ]
     ):
@@ -198,10 +197,8 @@ def main(args=None):
         re_filter = re.compile(args.filter_fonts)
         fonts = [f for f in fonts if re_filter.search(f)]
 
-    dfonts = [
-        DFont(f) for f in fonts if f.endswith((".ttf", ".otf")) and "static" not in f
-    ]
-    family_name = family_name_from_fonts(dfonts)
+    fonts = [f for f in fonts if f.endswith((".ttf", ".otf")) and "static" not in f]
+    family_name = family_name_from_fonts(fonts)
     family_on_gf = Google_Fonts_has_family(family_name)
 
     # Retrieve fonts_before and store in out dir
@@ -243,34 +240,32 @@ def main(args=None):
         url = args.github_dir
 
     if fonts_before:
-        dfonts_before = [
-            DFont(f)
+        fonts_before = [
+            f
             for f in fonts_before
             if f.endswith((".ttf", ".otf")) and "static" not in f
         ]
-        qa = FontQA(dfonts, dfonts_before, args.out, url=url)
+        qa = FontQA(fonts, fonts_before, args.out, url=url)
     else:
-        qa = FontQA(dfonts, out=args.out, url=url)
+        qa = FontQA(fonts, out=args.out, url=url)
 
     if args.auto_qa and family_on_gf:
         qa.googlefonts_upgrade(args.imgs)
     elif args.auto_qa and not family_on_gf:
         qa.googlefonts_new(args.imgs)
-    if args.render:
-        qa.render(args.imgs)
-    if args.fontbakery:
-        qa.fontbakery(extra_args=args.extra_fontbakery_args)
+    if args.proof:
+        qa.proof(args.imgs)
+    if args.fontspector:
+        qa.fontspector(extra_args=args.extra_fontspector_args)
     if args.diffenator:
         qa.diffenator()
     if args.diffbrowsers:
         qa.diffbrowsers(args.imgs)
-    if args.proof:
-        qa.proof()
     if args.interpolations:
         qa.interpolations()
 
     if qa.has_error:
-        logger.fatal("Fontbakery has raised a fatal error. Please fix!")
+        logger.fatal("Fontspector has raised a fatal error. Please fix!")
         sys.exit(1)
 
 

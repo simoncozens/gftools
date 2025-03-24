@@ -1,22 +1,12 @@
 import logging
 import os
+from pathlib import Path
+import shutil
 import subprocess
 import traceback
 
 from gftools.gfgithub import GitHubClient
 from gftools.utils import mkdir
-import sys
-
-try:
-    from diffenator2 import ninja_diff, ninja_proof
-except ModuleNotFoundError:
-    raise ModuleNotFoundError(
-        (
-            "gftools was installed without the QA "
-            "dependencies. To install the dependencies, see the ReadMe, "
-            "https://github.com/googlefonts/gftools#installation"
-        )
-    )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -50,48 +40,69 @@ class FontQA:
         if not self.fonts_before:
             logger.warning("Cannot run Diffenator since there are no fonts before")
             return
-        dst = os.path.join(self.out, "Diffenator")
-        ninja_diff(
-            self.fonts_before,
-            self.fonts,
-            out=dst,
-            imgs=False,
-            user_wordlist=None,
-            filter_styles=None,
-            diffenator=True,
-            diffbrowsers=False,
-        )
-
-    @report_exceptions
-    def diffbrowsers(self, imgs=False):
-        logger.info("Running Diffbrowsers")
-        if not self.fonts_before:
-            logger.warning("Cannot run diffbrowsers since there are no fonts before")
+        assert len(self.fonts) == len(self.fonts_before)
+        for f, f_before in zip(
+            sorted(self.fonts),
+            sorted(self.fonts_before),
+        ):
+            cmd = [
+                "diffenator3",
+                "--html",
+                "--instance",
+                "*",
+                "--output",
+                os.path.join(self.out, "Diffenator"),
+                f_before.path,
+                f.path,
+            ]
+            process = subprocess.run(cmd)
+            if process.returncode != 0:
+                self.has_error = True
             return
-        dst = os.path.join(self.out, "Diffbrowsers")
-        mkdir(dst)
-        ninja_diff(
-            self.fonts_before,
-            self.fonts,
-            out=dst,
-            imgs=imgs,
-            filter_styles=None,
-            user_wordlist=None,
-            diffenator=False,
-            diffbrowsers=True,
-        )
 
     @report_exceptions
     def proof(self, imgs=False):
         logger.info("Running proofing tools")
         dst = os.path.join(self.out, "Proof")
-        mkdir(dst)
-        ninja_proof(
-            self.fonts,
-            out=dst,
-            imgs=imgs,
-            filter_styles=None,
-        )
+        # Duplication here is horrible, fix later
+        if self.fonts_before:  # Run proofer in diffbrowsers mode
+            for f, f_before in zip(
+                sorted(self.fonts),
+                sorted(self.fonts_before),
+            ):
+                cmd = [
+                    "diff3proof",
+                    "--output",
+                    dst,
+                    f_before,
+                    f,
+                ]
+                process = subprocess.run(cmd)
+                os.rename(
+                    os.path.join(dst, "diff3proof.html"),
+                    os.path.join(dst, f"diff3proof-{Path(f).stem}.html"),
+                )
+
+                if process.returncode != 0:
+                    self.has_error = True
+                return
+        else:
+            for font in self.fonts:
+                cmd = [
+                    "diff3proof",
+                    "--output",
+                    dst,
+                    font,
+                ]
+                process = subprocess.run(cmd)
+                shutil.rename(
+                    os.path.join(dst, "diff3proof.html"),
+                    os.path.join(dst, f"diff3proof-{Path(font).stem}.html"),
+                )
+
+                if process.returncode != 0:
+                    self.has_error = True
+                return
 
     @report_exceptions
     def interpolations(self):
@@ -107,16 +118,14 @@ class FontQA:
             subprocess.call(cmd)
 
     @report_exceptions
-    def fontbakery(self, profile="googlefonts", html=False, extra_args=None):
-        logger.info("Running Fontbakery")
-        out = os.path.join(self.out, "Fontbakery")
+    def fontspector(self, profile="googlefonts", html=False, extra_args=None):
+        logger.info("Running Fontspector")
+        out = os.path.join(self.out, "Fontspector")
         mkdir(out)
         cmd = (
-            ["fontbakery", "check-" + profile, "-l", "INFO", "--succinct"]
-            + [f.path for f in self.fonts]
-            + ["-C"]
+            ["fontspector", "--profile", profile, "-l", "info", "--succinct"]
+            + [f for f in self.fonts]
             + ["--ghmarkdown", os.path.join(out, "report.md")]
-            + ["-e", "FATAL"]
         )
         if html:
             cmd.extend(["--html", os.path.join(out, "report.html")])
@@ -124,13 +133,13 @@ class FontQA:
             cmd.extend(extra_args)
         process = subprocess.run(cmd)
 
-        fontbakery_report = os.path.join(self.out, "Fontbakery", "report.md")
-        if not os.path.isfile(fontbakery_report):
+        fontspector_report = os.path.join(self.out, "Fontspector", "report.md")
+        if not os.path.isfile(fontspector_report):
             logger.warning(
-                "Cannot Post Github message because no Fontbakery report exists"
+                "Cannot Post Github message because no Fontspector report exists"
             )
             return
-        with open(fontbakery_report) as doc:
+        with open(fontspector_report) as doc:
             msg = doc.read()
             self.post_to_github(msg)
 
@@ -138,21 +147,15 @@ class FontQA:
             self.has_error = True
 
     def googlefonts_upgrade(self, imgs=False):
-        self.fontbakery()
+        self.fontspector()
         self.diffenator()
-        self.diffbrowsers(imgs)
-        self.interpolations()
-
-    def googlefonts_new(self, imgs=False):
-        self.fontbakery()
         self.proof(imgs)
         self.interpolations()
 
-    def render(self, imgs=False):
-        if self.fonts_before:
-            self.diffbrowsers(imgs)
-        else:
-            self.proof(imgs)
+    def googlefonts_new(self, imgs=False):
+        self.fontspector()
+        self.proof(imgs)
+        self.interpolations()
 
     def post_to_github(self, text):
         """Post text as a new issue or as a comment to an open
@@ -174,7 +177,7 @@ class FontQA:
                 client.create_issue("Google Font QA report", text)
         except Exception as e:
             logger.warn(
-                "Cannot post Fontbakery report!\n"
+                "Cannot post Fontspector report!\n"
                 "Most likely, the repository may lack a GH_TOKEN secret, or "
                 "the pull request has come from a forked repo which "
                 "is not allowed to access the repo's secrets for "
