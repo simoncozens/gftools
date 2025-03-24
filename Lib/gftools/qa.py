@@ -107,14 +107,14 @@ class FontQA:
     @report_exceptions
     def interpolations(self):
         dst = os.path.join(self.out, "Interpolations")
-        if not any(f.is_variable() for f in self.fonts):
+        if not any("[" in f for f in self.fonts):
             return
         mkdir(dst)
         for font in self.fonts:
-            font_dst = os.path.join(dst, f"{os.path.basename(font.path[:-4])}.pdf")
-            if not font.is_variable():
+            font_dst = os.path.join(dst, f"{os.path.basename(font[:-4])}.pdf")
+            if "[" not in font:
                 continue
-            cmd = ["fonttools", "varLib.interpolatable", font.path, "--pdf", font_dst]
+            cmd = ["interpolatable", font.path, "--pdf", font_dst]
             subprocess.call(cmd)
 
     @report_exceptions
