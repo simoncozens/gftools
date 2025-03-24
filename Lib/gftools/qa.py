@@ -52,8 +52,8 @@ class FontQA:
                 "*",
                 "--output",
                 os.path.join(self.out, "Diffenator"),
-                f_before.path,
-                f.path,
+                f_before,
+                f,
             ]
             process = subprocess.run(cmd)
             if process.returncode != 0:
@@ -114,7 +114,7 @@ class FontQA:
             font_dst = os.path.join(dst, f"{os.path.basename(font[:-4])}.pdf")
             if "[" not in font:
                 continue
-            cmd = ["interpolatable", font.path, "--pdf", font_dst]
+            cmd = ["interpolatable", font, "--pdf", font_dst]
             subprocess.call(cmd)
 
     @report_exceptions
