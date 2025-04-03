@@ -82,9 +82,9 @@ def server_push_status(fp: Path, url: str):
     families = [
         i
         for i in PushItems.from_server_file(fp, None, None)
-        if isinstance(i.item(), Family)
+        if isinstance(i.item, Family)
     ]
-    family_names = [i.item().name for i in families]
+    family_names = [i.item.name for i in families]
 
     gf_meta = gf_server_metadata(url)
 
