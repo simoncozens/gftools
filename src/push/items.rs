@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use skrifa::{raw::TableProvider, string::StringId, FontRef, MetadataProvider};
 
-use crate::{error::GftoolsError, FamilyProto};
+use crate::{error::GftoolsError, utils::parse_html, FamilyProto};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Family {
@@ -50,10 +50,7 @@ impl Family {
             .and_then(|m| m.get("family"))
             .and_then(|f| f.as_str())
             .ok_or_else(|| {
-                GftoolsError::JsonParse(format!(
-                    "Couldn't find family in JSON: {}",
-                    data.to_string()
-                ))
+                GftoolsError::JsonParse(format!("Couldn't find family in JSON: {}", data))
             })?;
         Self::from_googlefonts(name, url)
     }
@@ -105,35 +102,36 @@ struct FamilyMeta {
 
 impl FamilyMeta {
     fn from_path(path: &Path) -> Result<Self, GftoolsError> {
-        let meta_file = path.join("METADATA.pb");
-        let contents = std::str::from_utf8(&std::fs::read(meta_file)?)
+        let meta_path = path.join("METADATA.pb");
+        let meta_file = std::fs::read(meta_path)?;
+        let contents = std::str::from_utf8(&meta_file)
             .map_err(|_| GftoolsError::Misc("METADATA.pb is not valid UTF-8".to_string()))?;
         let data = protobuf::text_format::parse_from_str::<FamilyProto>(contents)
-            .map_err(|e| GftoolsError::ProtobufParse(e))?;
-        let stroke = data
-            .stroke
-            .map(|x| x.replace("_,", " ").to_uppercase())
-            .or_else(|| data.category.first().cloned())
-            .unwrap_or_else(|| "UNKNOWN".to_string());
+            .map_err(GftoolsError::ProtobufParse)?;
+        let mut stroke = data.stroke().replace("_,", " ").to_uppercase();
+        if stroke.is_empty() {
+            stroke = data
+                .category
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+        }
 
         let article = path.join("article").join("ARTICLE.en_us.html");
         let article = if article.exists() {
-            Some(parse_html(article))
+            Some(parse_html(&article)?)
         } else {
             None
         };
         let description = path.join("DESCRIPTION.en_us.html");
         let description = if description.exists() {
-            Some(parse_html(description))
+            Some(parse_html(&description)?)
         } else {
             None
         };
         Ok(Self {
             name: data.name().to_string(),
-            designer: data
-                .designer
-                .map(|x| x.split(", ").map(|s| s.to_string()).collect())
-                .unwrap_or_default(),
+            designer: data.designer().split(", ").map(|s| s.to_string()).collect(),
             license: data.license().to_string(),
             category: data.category.first().cloned().unwrap_or_default(),
             subsets: data.subsets,
@@ -145,6 +143,12 @@ impl FamilyMeta {
             minisite_url: data.minisite_url,
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Designer {
+    name: String,
+    bio: String,
 }
 
 enum PushItem {

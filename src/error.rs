@@ -6,6 +6,8 @@ pub enum GftoolsError {
     FontParse(#[from] skrifa::raw::ReadError),
     #[error("problem parsing JSON")]
     JsonParse(String),
+    #[error("problem parsing HTML")]
+    HtmlParse(String),
     #[error("problem reading file")]
     FileRead(#[from] std::io::Error),
     #[error("miscellaneous error")]
