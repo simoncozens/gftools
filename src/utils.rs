@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::error::GftoolsError;
 
 pub(crate) fn download_family_from_google_fonts(
@@ -58,9 +56,4 @@ pub(crate) fn download_family_from_google_fonts(
         fonts.push(contents.to_vec());
     }
     Ok(fonts)
-}
-
-pub(crate) fn parse_html(html: &PathBuf) -> Result<String, GftoolsError> {
-    let input = std::fs::File::open(html)?;
-    html2text::from_read(input, 80).map_err(|e| GftoolsError::HtmlParse(e.to_string()))
 }
